@@ -1,0 +1,64 @@
+# Copyright 2025 Pedro Coutinho
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+
+#     https://www.apache.org/licenses/LICENSE-2.0
+
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  pihole:
+    container_name: pihole
+    hostname: pihole
+    image: pihole/pihole:latest
+    ports:
+      # DNS Ports
+      - 53:53/tcp
+      - 53:53/udp
+      # Default HTTP Port
+      - 80:80/tcp
+      # Default HTTPs Port. FTL will generate a self-signed certificate
+      - 443:443/tcp
+      # Uncomment the below if using Pi-hole as your DHCP Server
+      #- "67:67/udp"
+    # cap_add:
+    #   - NET_ADMIN # Required if you are using Pi-hole as your DHCP server, else not needed
+    environment:
+      - FTLCONF_dns_reply_host_IPv4=192.168.0.1
+      - TZ=${TZ:-UTC}
+    volumes:
+      - ./volumes/pihole/data/etc/pihole:/etc/pihole:rw
+      - ./volumes/pihole/data/etc/dnsmasq.d:/etc/dnsmasq.d:rw
+    restart: unless-stopped
+
+  keepalived:
+    container_name: keepalived
+    hostname: keepalived
+    image: ghcr.io/coutinhop/docker-keepalived:latest
+    env_file: ../env
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - TZ=${TZ:-UTC}
+      - KEEPALIVED_NOTIFICATION_URL=${KEEPALIVED_NOTIFICATION_URL}
+      - KEEPALIVED_PASSWORD=${KEEPALIVED_PASSWORD}
+      - KEEPALIVED_ROUTER_ID=keepalived-01
+      - KEEPALIVED_WEIGHT=-10
+      - KEEPALIVED_INSTANCE_NAME=keepalived1
+      - KEEPALIVED_INTERFACE=eth0
+      - KEEPALIVED_VIRTUAL_ROUTER_ID=100
+      - KEEPALIVED_PRIORITY=150
+      - KEEPALIVED_SRC_IP=192.168.0.1
+      - KEEPALIVED_PEER_IP=192.168.0.2
+      - KEEPALIVED_VIRTUAL_IP=192.168.0.3/24
+      - KEEPALIVED_CHECK_SCRIPT="/usr/bin/curl -fsSL 127.0.0.1 || exit 1"
+      - KEEPALIVED_CHECK_INTERVAL=5
+    restart: unless-stopped
