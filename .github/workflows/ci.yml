@@ -25,6 +25,9 @@ jobs:
         run: make build-all
 
   test:
+
+    runs-on: ubuntu-latest
+
     needs: build-all
 
     steps:
@@ -35,6 +38,9 @@ jobs:
         run: make test
 
   manifest:
+
+    runs-on: ubuntu-latest
+
     needs: [build-all, test]
 
     steps:
