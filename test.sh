@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+set -x
+
 RETURN_VALUES=""
 
 IMAGE_NAME=${IMAGE_NAME:=ghcr.io/coutinhop/docker-keepalived}
