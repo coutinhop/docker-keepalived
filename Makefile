@@ -37,7 +37,7 @@ sub-build-%:
 	$(MAKE) $(IMAGE_MARKER)-$*
 
 $(IMAGE_MARKER)-%: $(SOURCE_FILES)
-	docker build --platform=linux/$* --pull --output=type=docker --tag $(IMAGE_NAME):$(IMAGE_TAG)-$* -f Dockerfile .
+	docker buildx build --platform=linux/$* --pull --output=type=docker --tag $(IMAGE_NAME):$(IMAGE_TAG)-$* -f Dockerfile .
 	touch $@
 
 .PHONY: push-all
