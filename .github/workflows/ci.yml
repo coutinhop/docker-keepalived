@@ -12,6 +12,10 @@ env:
   # github.repository as <account>/<repo>
   IMAGE_NAME: ghcr.io/${{ github.repository }}
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build-test-publish:
 
@@ -33,13 +37,13 @@ jobs:
       # Login against a Docker registry
       # https://github.com/docker/login-action
       - name: Log into registry ${{ env.REGISTRY }} (except for PRs)
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish images and manifest (except for PRs)
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: make manifest
