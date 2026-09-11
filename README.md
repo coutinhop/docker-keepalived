@@ -54,7 +54,7 @@ docker run -d --net host --name keepalived -h keepalived --cap-add NET_ADMIN --s
     ghcr.io/coutinhop/docker-keepalived:latest
 ```
 
-Configure weights and prioritys appropriately (the examples have a difference of 5 between primary and secondary and a weight of -10, achieving takeover of secondary if primary's check script fails).
+Configure weights and priorities appropriately (the examples have a difference of 5 between primary and secondary and a weight of -10, achieving takeover of secondary if primary's check script fails).
 
 `KEEPALIVED_STARTUP_DELAY` (default 10, in seconds) holds off VRRP advertisements for that long after startup, avoiding a race with the interface coming up on host reboot. Tracking scripts still run immediately during the delay, so the instance joins with an already-correct effective priority. Set it to 0 to disable.
 
