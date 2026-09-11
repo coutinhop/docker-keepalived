@@ -22,6 +22,42 @@ ARCH=$(uname -m)
 ARCH=$(echo $ARCH | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/' -e 's/armv7l/arm/')
 
 TEST_PREFIX=docker-keepalived-test
+TEST_TIMEOUT=${TEST_TIMEOUT:=30}
+
+# Polls a container's logs until the given messages appear in order.
+# Prints the logs and fails after TEST_TIMEOUT seconds.
+poll_logs() {
+  local container=$1
+  local logfile=$2
+  shift 2
+  local pattern=$1
+  shift
+  local msg
+  for msg in "$@"; do
+    pattern="${pattern}.*${msg}"
+  done
+
+  echo "Waiting up to ${TEST_TIMEOUT}s for ${container} logs to match: ${pattern}"
+  local rc=1
+  local deadline=$((SECONDS + TEST_TIMEOUT))
+  { set +x; } 2>/dev/null # the poll loop itself is just noise in the trace
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    docker logs "$container" > "$logfile" 2>&1
+    if tr '\n' '\a' < "$logfile" | grep -q "$pattern"; then
+      rc=0
+      break
+    fi
+    sleep 1
+  done
+  set -x
+
+  if [ "$rc" -ne 0 ]; then
+    echo "Timed out waiting for ${container} logs to match: ${pattern}"
+    echo "${container} logs were:"
+    cat "$logfile"
+  fi
+  return $rc
+}
 
 echo "Pre-test clean up"
 docker rm -f $(docker ps -f name=${TEST_PREFIX}* -q) || true
@@ -47,7 +83,8 @@ docker run -d --name ${TEST_PREFIX}-1 --cap-add NET_ADMIN --security-opt no-new-
     -e KEEPALIVED_ROUTER_ID=keepalived-01\
     -e KEEPALIVED_INSTANCE_NAME=keepalived1\
     -e KEEPALIVED_PRIORITY=150\
-    -e  KEEPALIVED_CHECK_INTERVAL=1\
+    -e KEEPALIVED_CHECK_INTERVAL=1\
+    -e KEEPALIVED_STARTUP_DELAY=0\
     ${IMAGE_NAME}:${IMAGE_TAG}-${ARCH}
 docker run -d --name ${TEST_PREFIX}-2 --cap-add NET_ADMIN --security-opt no-new-privileges:true --net ${TEST_PREFIX}-net --env-file ./example/env \
     -e KEEPALIVED_CHECK_SCRIPT="/bin/true" \
@@ -57,20 +94,17 @@ docker run -d --name ${TEST_PREFIX}-2 --cap-add NET_ADMIN --security-opt no-new-
     -e KEEPALIVED_ROUTER_ID=keepalived-02\
     -e KEEPALIVED_INSTANCE_NAME=keepalived2\
     -e KEEPALIVED_PRIORITY=145\
-    -e  KEEPALIVED_CHECK_INTERVAL=1\
+    -e KEEPALIVED_CHECK_INTERVAL=1\
+    -e KEEPALIVED_STARTUP_DELAY=0\
     ${IMAGE_NAME}:${IMAGE_TAG}-${ARCH}
-sleep 10
-docker logs ${TEST_PREFIX}-1 > ./test-1-1.log 2>&1
-docker logs ${TEST_PREFIX}-2 > ./test-1-2.log 2>&1
-
 MSG1="(keepalived1) Entering BACKUP STATE (init)"
 MSG2="VRRP_Script(check_status) succeeded"
 MSG3="(keepalived1) Entering MASTER STATE"
-cat ./test-1-1.log | tr '\n' '\a' | grep -o "${MSG1}.*${MSG2}.*${MSG3}" || RETURN_VALUE=1
+poll_logs ${TEST_PREFIX}-1 ./test-1-1.log "${MSG1}" "${MSG2}" "${MSG3}" || RETURN_VALUE=1
 
 MSG1="(keepalived2) Entering BACKUP STATE (init)"
 MSG2="VRRP_Script(check_status) succeeded"
-cat ./test-1-2.log | tr '\n' '\a' | grep -o "${MSG1}.*${MSG2}" || RETURN_VALUE=1
+poll_logs ${TEST_PREFIX}-2 ./test-1-2.log "${MSG1}" "${MSG2}" || RETURN_VALUE=1
 
 docker rm -f $(docker ps -f name=${TEST_PREFIX}* -q) || true
 echo "Test case 1 finished"
@@ -91,7 +125,8 @@ docker run -d --name ${TEST_PREFIX}-1 --cap-add NET_ADMIN --security-opt no-new-
     -e KEEPALIVED_ROUTER_ID=keepalived-01\
     -e KEEPALIVED_INSTANCE_NAME=keepalived1\
     -e KEEPALIVED_PRIORITY=150\
-    -e  KEEPALIVED_CHECK_INTERVAL=1\
+    -e KEEPALIVED_CHECK_INTERVAL=1\
+    -e KEEPALIVED_STARTUP_DELAY=0\
     ${IMAGE_NAME}:${IMAGE_TAG}-${ARCH}
 docker run -d --name ${TEST_PREFIX}-2 --cap-add NET_ADMIN --security-opt no-new-privileges:true --net ${TEST_PREFIX}-net --env-file ./example/env \
     -e KEEPALIVED_CHECK_SCRIPT="/bin/false" \
@@ -101,21 +136,18 @@ docker run -d --name ${TEST_PREFIX}-2 --cap-add NET_ADMIN --security-opt no-new-
     -e KEEPALIVED_ROUTER_ID=keepalived-02\
     -e KEEPALIVED_INSTANCE_NAME=keepalived2\
     -e KEEPALIVED_PRIORITY=145\
-    -e  KEEPALIVED_CHECK_INTERVAL=1\
+    -e KEEPALIVED_CHECK_INTERVAL=1\
+    -e KEEPALIVED_STARTUP_DELAY=0\
     ${IMAGE_NAME}:${IMAGE_TAG}-${ARCH}
-sleep 10
-docker logs ${TEST_PREFIX}-1 > ./test-2-1.log 2>&1
-docker logs ${TEST_PREFIX}-2 > ./test-2-2.log 2>&1
-
 MSG1="(keepalived1) Entering BACKUP STATE (init)"
 MSG2="VRRP_Script(check_status) succeeded"
 MSG3="(keepalived1) Entering MASTER STATE"
-cat ./test-2-1.log | tr '\n' '\a' | grep -o "${MSG1}.*${MSG2}.*${MSG3}" || RETURN_VALUE=1
+poll_logs ${TEST_PREFIX}-1 ./test-2-1.log "${MSG1}" "${MSG2}" "${MSG3}" || RETURN_VALUE=1
 
 MSG1="(keepalived2) Entering BACKUP STATE (init)"
 MSG2="VRRP_Script(check_status) failed (exited with status 1)"
 MSG3="(keepalived2) Changing effective priority from 145 to 135"
-cat ./test-2-2.log | tr '\n' '\a' | grep -o "${MSG1}.*${MSG2}.*${MSG3}" || RETURN_VALUE=1
+poll_logs ${TEST_PREFIX}-2 ./test-2-2.log "${MSG1}" "${MSG2}" "${MSG3}" || RETURN_VALUE=1
 
 docker rm -f $(docker ps -f name=${TEST_PREFIX}* -q) || true
 echo "Test case 2 finished"
@@ -136,7 +168,8 @@ docker run -d --name ${TEST_PREFIX}-1 --cap-add NET_ADMIN --security-opt no-new-
     -e KEEPALIVED_ROUTER_ID=keepalived-01\
     -e KEEPALIVED_INSTANCE_NAME=keepalived1\
     -e KEEPALIVED_PRIORITY=150\
-    -e  KEEPALIVED_CHECK_INTERVAL=1\
+    -e KEEPALIVED_CHECK_INTERVAL=1\
+    -e KEEPALIVED_STARTUP_DELAY=0\
     ${IMAGE_NAME}:${IMAGE_TAG}-${ARCH}
 docker run -d --name ${TEST_PREFIX}-2 --cap-add NET_ADMIN --security-opt no-new-privileges:true --net ${TEST_PREFIX}-net --env-file ./example/env \
     -e KEEPALIVED_CHECK_SCRIPT="/bin/true" \
@@ -146,22 +179,19 @@ docker run -d --name ${TEST_PREFIX}-2 --cap-add NET_ADMIN --security-opt no-new-
     -e KEEPALIVED_ROUTER_ID=keepalived-02\
     -e KEEPALIVED_INSTANCE_NAME=keepalived2\
     -e KEEPALIVED_PRIORITY=145\
-    -e  KEEPALIVED_CHECK_INTERVAL=1\
+    -e KEEPALIVED_CHECK_INTERVAL=1\
+    -e KEEPALIVED_STARTUP_DELAY=0\
     ${IMAGE_NAME}:${IMAGE_TAG}-${ARCH}
-sleep 10
-docker logs ${TEST_PREFIX}-1 > ./test-3-1.log 2>&1
-docker logs ${TEST_PREFIX}-2 > ./test-3-2.log 2>&1
-
 MSG1="(keepalived1) Entering BACKUP STATE (init)"
 MSG2="VRRP_Script(check_status) failed (exited with status 1)"
 MSG3="(keepalived1) Entering BACKUP STATE"
-cat ./test-3-1.log | tr '\n' '\a' | grep -o "${MSG1}.*${MSG2}.*${MSG3}" || RETURN_VALUE=1
+poll_logs ${TEST_PREFIX}-1 ./test-3-1.log "${MSG1}" "${MSG2}" "${MSG3}" || RETURN_VALUE=1
 
 MSG1="(keepalived2) Entering BACKUP STATE (init)"
 MSG2="VRRP_Script(check_status) succeeded"
 MSG3="(keepalived2) received lower priority (140) advert from ${TEST_IP1} - discarding"
 MSG4="(keepalived2) Entering MASTER STATE"
-cat ./test-3-2.log | tr '\n' '\a' | grep -o "${MSG1}.*${MSG2}.*${MSG3}.*${MSG4}" || RETURN_VALUE=1
+poll_logs ${TEST_PREFIX}-2 ./test-3-2.log "${MSG1}" "${MSG2}" "${MSG3}" "${MSG4}" || RETURN_VALUE=1
 
 docker rm -f $(docker ps -f name=${TEST_PREFIX}* -q) || true
 echo "Test case 3 finished"
@@ -182,7 +212,8 @@ docker run -d --name ${TEST_PREFIX}-1 --cap-add NET_ADMIN --security-opt no-new-
     -e KEEPALIVED_ROUTER_ID=keepalived-01\
     -e KEEPALIVED_INSTANCE_NAME=keepalived1\
     -e KEEPALIVED_PRIORITY=150\
-    -e  KEEPALIVED_CHECK_INTERVAL=1\
+    -e KEEPALIVED_CHECK_INTERVAL=1\
+    -e KEEPALIVED_STARTUP_DELAY=0\
     ${IMAGE_NAME}:${IMAGE_TAG}-${ARCH}
 docker run -d --name ${TEST_PREFIX}-2 --cap-add NET_ADMIN --security-opt no-new-privileges:true --net ${TEST_PREFIX}-net --env-file ./example/env \
     -e KEEPALIVED_CHECK_SCRIPT="/bin/false" \
@@ -192,22 +223,19 @@ docker run -d --name ${TEST_PREFIX}-2 --cap-add NET_ADMIN --security-opt no-new-
     -e KEEPALIVED_ROUTER_ID=keepalived-02\
     -e KEEPALIVED_INSTANCE_NAME=keepalived2\
     -e KEEPALIVED_PRIORITY=145\
-    -e  KEEPALIVED_CHECK_INTERVAL=1\
+    -e KEEPALIVED_CHECK_INTERVAL=1\
+    -e KEEPALIVED_STARTUP_DELAY=0\
     ${IMAGE_NAME}:${IMAGE_TAG}-${ARCH}
-sleep 10
-docker logs ${TEST_PREFIX}-1 > ./test-4-1.log 2>&1
-docker logs ${TEST_PREFIX}-2 > ./test-4-2.log 2>&1
-
 MSG1="(keepalived1) Entering BACKUP STATE (init)"
 MSG2="VRRP_Script(check_status) failed (exited with status 1)"
 MSG3="(keepalived1) Changing effective priority from 150 to 140"
 MSG4="(keepalived1) Entering MASTER STATE"
-cat ./test-4-1.log | tr '\n' '\a' | grep -o "${MSG1}.*${MSG2}.*${MSG3}.*${MSG4}" || RETURN_VALUE=1
+poll_logs ${TEST_PREFIX}-1 ./test-4-1.log "${MSG1}" "${MSG2}" "${MSG3}" "${MSG4}" || RETURN_VALUE=1
 
 MSG1="(keepalived2) Entering BACKUP STATE (init)"
 MSG2="VRRP_Script(check_status) failed (exited with status 1)"
 MSG3="(keepalived2) Changing effective priority from 145 to 135"
-cat ./test-4-2.log | tr '\n' '\a' | grep -o "${MSG1}.*${MSG2}.*${MSG3}" || RETURN_VALUE=1
+poll_logs ${TEST_PREFIX}-2 ./test-4-2.log "${MSG1}" "${MSG2}" "${MSG3}" || RETURN_VALUE=1
 
 docker rm -f $(docker ps -f name=${TEST_PREFIX}* -q) || true
 echo "Test case 4 finished"

@@ -15,6 +15,7 @@
 # default values for vars
 export KEEPALIVED_ROUTER_ID=${KEEPALIVED_ROUTER_ID:=keepalived-01}
 export KEEPALIVED_CHECK_INTERVAL=${KEEPALIVED_CHECK_INTERVAL:=5}
+export KEEPALIVED_STARTUP_DELAY=${KEEPALIVED_STARTUP_DELAY:=10}
 export KEEPALIVED_WEIGHT=${KEEPALIVED_WEIGHT:=-10}
 export KEEPALIVED_INSTANCE_NAME=${KEEPALIVED_INSTANCE_NAME:=keepalived1}
 export KEEPALIVED_INTERFACE=${KEEPALIVED_INTERFACE:=eth0}
@@ -28,6 +29,14 @@ export KEEPALIVED_NOTIFICATION_URL=${KEEPALIVED_NOTIFICATION_URL:=https://ntfy.e
 export KEEPALIVED_FLAGS=${KEEPALIVED_FLAGS:="-n -l"}
 
 export KEEPALIVED_CHECK_SCRIPT=${KEEPALIVED_CHECK_SCRIPT:="/usr/bin/curl -fsSL 127.0.0.1 || exit 1"}
+
+# keepalived rejects a vrrp_startup_delay of 0, so leave the directive out of the
+# config entirely when the delay is disabled
+if [ "${KEEPALIVED_STARTUP_DELAY}" = "0" ]; then
+	export KEEPALIVED_STARTUP_DELAY_CONF=""
+else
+	export KEEPALIVED_STARTUP_DELAY_CONF="vrrp_startup_delay ${KEEPALIVED_STARTUP_DELAY}"
+fi
 
 cat /etc/keepalived_templates/keepalived-check.sh.tpl | envsubst > /usr/bin/keepalived-check.sh
 chmod +x /usr/bin/keepalived-check.sh

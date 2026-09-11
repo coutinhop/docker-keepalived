@@ -15,7 +15,7 @@ global_defs {
 	router_id $KEEPALIVED_ROUTER_ID
 	script_user root
 	enable_script_security
-	vrrp_startup_delay 10
+	$KEEPALIVED_STARTUP_DELAY_CONF
 }
 
 vrrp_script check_status {
